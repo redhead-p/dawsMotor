@@ -37,7 +37,9 @@
 /** @addtogroup hwAssignments 
  
  @{
+*/
 
+/**    
  @brief Use first PWM periphal
  
  The motor pwm generation uses PWM0, the first PWM peripheral
