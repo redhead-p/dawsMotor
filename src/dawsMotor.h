@@ -1,8 +1,8 @@
 /**
  @file dawsMotor.h
  @author Paul Redhead on 7/7/2020.
- @copyright (C) 2020 Paul Redhead
- @version 0.a
+ @copyright (C) 2020, 2021, 2022 Paul Redhead
+
  */
 
 //
@@ -20,7 +20,6 @@
 //  You should have received a copy of the GNU General Public License
 //  along with DAWS.  If not, see <http://www.gnu.org/licenses/>.
 //
-//  Version 0.a First released version
 //
 //
 //

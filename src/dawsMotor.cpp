@@ -1,8 +1,8 @@
 /**
  @file dawsMotor.cpp
  @author Paul Redhead on 7/7/2020.
- @copyright (C) 2020 Paul Redhead
- @version 0.a
+ @copyright (C) 2020, 2021, 2022 Paul Redhead
+
 
  This code module contains the traction motor control code.
 
