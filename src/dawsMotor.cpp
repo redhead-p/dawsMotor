@@ -50,6 +50,7 @@
 // thread flags
 #define SAMPLE_FLAG 1 ///< Motor thread flag to initiate sample
 #define START_FLAG 2  ///< Motor thread flag to start PWM
+#define STOP_FLAG 4 ///< Motor thread flag to stop PWM
 
 /**
 @brief microseconds between sample gaps
@@ -60,6 +61,15 @@
 #define PWM_LEN 20 ///< length of pulse train in ms
 
 #define FAST_DECAY_TIME 512 ///< time allowed for fast decay settling (µs)
+
+/**
+ @brief Minimum stop time
+ 
+ Defines the minimum stop time in ms.  Following a stop command restart will be delayed 
+ to ensure various levels have settled to quiescent values
+ */
+#define MIN_STOP 3000
+
 
 #if DIAG
 mbed::DigitalOut diagPin(p43); ///< pin for diagnostic use with oscilloscope
@@ -169,7 +179,7 @@ void Motor::setup()
     _setGainRatio(_cv.gainDB);    // this will set the gain ratio
     _setITimeRatio(_cv.iTimeLog); // and the Integral Time factor
 #if DEBUG
-    Serial.print("I time");
+    Serial.print("I time ");
     Serial.print(_cv.iTimeLog);
     Serial.print(" ");
     Serial.println((float)_iTimeRatio / 256.0);
@@ -250,35 +260,28 @@ bool Motor::syncKV()
 bool Motor::setDir(Dir_t dir)
 {
     bool result;
-    if (dir == STOPPED) // stop command
+    if (dir == _dir)
     {
+        // already running in this direction or stopped - quietly ignore
+        result = true;
+    }
+    else if (dir == STOPPED) // stop command
+    {
+        // if speed has not already been set to 0
         // this implements an emergency stop
-        // if motor speed > 0
+        _dir = dir;
+        
+         _sampleThread.flags_set(STOP_FLAG); // set the thread flag to stop PWM
 
-        // stop the pwm ticker and sample timeout
-        _sampleTicker.detach();
-        _sampleTimer.detach();
-
-        _maxSpeed = 0;
-        _targetSpeed = 0;
-        _dir = STOPPED;
-        _pwmGen.stopPWM();
-        _lastStopTime = millis(); // save time of stop - if restart is too soon it will be delayed
-        // impose a delay - temporary measure
-        // rtos::ThisThread::sleep_for(std::chrono::milliseconds(1000));
         result = true;
     }
     else if (STOPPED == _dir) //  was stopped
     {
         _dir = dir;
-        _targetSpeed = 0;
-        _maxSpeed = 0;
+        // speed should already be zeroed
+        //_targetSpeed = 0;
+        //_maxSpeed = 0;
         _sampleThread.flags_set(START_FLAG); // set the thread flag to start PWM
-        result = true;
-    }
-    else if (dir == _dir)
-    {
-        // already running in this direction
         result = true;
     }
     else // crash direction change not allowed.
@@ -512,7 +515,7 @@ void Motor::setObstructionStop(int mm, float mmPerSec)
 #if DEBUG
         Serial.print((float)targetSpeed / 256.0);
         Serial.print('\t');
-        Serial.print(getmmPerSec());
+        Serial.print(mmPerSec);
         Serial.print('\t');
         Serial.print(time);
         Serial.print('\t');
@@ -657,7 +660,7 @@ void Motor::_sampleTOProc()
     if (_pwmGen.getState() == M_GAP_FAST_DECAY)
     {
         bemfSensor.initSample();
-        _sampleThread.flags_set(SAMPLE_FLAG); // set thread sample flag to initiate sample
+        _sampleThread.flags_set(SAMPLE_FLAG); // set thread sample flag to read sample
     }
 }
 
@@ -672,22 +675,33 @@ void Motor::_sampleTOProc()
  */
 void Motor::_motorMain()
 {
+
+
     while (true)
     {
         // wait for one of the flags to be set
-        uint32_t flags = rtos::ThisThread::flags_wait_any(START_FLAG | SAMPLE_FLAG);
+        uint32_t flags = rtos::ThisThread::flags_wait_any(START_FLAG | SAMPLE_FLAG | STOP_FLAG);
         if ((flags & START_FLAG) != 0) // start flag set
         {
             _outputI = 0;              // clear Integral correction
             bemfSensor.resetFilters(); // and filters
 
-            if ((millis() - _lastStopTime) < 1000)
-            {
-                // need to pause for at least 1s before measuring
-                // to give things a chance to settle
-                rtos::ThisThread::sleep_for(std::chrono::milliseconds(1000));
-            }
+#if DEBUG
+            Serial.print("Time since last stop ");
+            Serial.print(millis() - _lastStopTime);
+            Serial.println("ms");
+#endif
 
+            if ((millis() - _lastStopTime) < MIN_STOP)
+            {
+
+                // need to pause before measuring
+                // to give things a chance to settle
+                rtos::ThisThread::sleep_for(std::chrono::milliseconds(MIN_STOP));
+            }
+#if DEBUG
+            Serial.println("Motor starting");
+#endif
             bemfSensor.measureBEMFzero(); // measure BEMF zero reference
             if (_dir != STOPPED)          // check to make sure that we've not been stopped already!
             {
@@ -697,6 +711,21 @@ void Motor::_motorMain()
                 _sampleTicker.attach(mbed::callback(this, &Motor::_sampleTickProc),
                                      std::chrono::milliseconds(PWM_LEN));
             }
+        }
+        if ((flags & STOP_FLAG) != 0) // stop flag set
+        {
+            // stop the pwm ticker and sample timeout
+            _sampleTicker.detach();
+            _sampleTimer.detach();
+            _maxSpeed = 0;
+            _targetSpeed = 0;
+            _pwmGen.stopPWM();
+            _lastStopTime = millis(); // save time of stop - if restart is too soon it will be delayed
+#if DEBUG
+            Serial.print("Stopped at ");
+            Serial.print(_lastStopTime);
+            Serial.println("ms");
+#endif
         }
         if ((flags & SAMPLE_FLAG) != 0) // sample flag set
         {

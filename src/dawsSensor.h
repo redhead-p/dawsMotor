@@ -50,7 +50,7 @@ The number of samples held for the median filter.
  
  Defines the power of the low pass filter.  For n = 2 alpha is  3/4
  */
-#define FILTER_POWER 2
+#define FILTER_POWER 1
 
 /**
  @}
